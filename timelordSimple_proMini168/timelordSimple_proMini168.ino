@@ -6,24 +6,30 @@
 
     Geoffrey Todd Lamke, MD
 
-    RTC TIME = 13:04:48, Date (Y/M/D) = 2017/04/01  :-)
 */
 
-#include "DHT.h"         //include DHT library
 #include <Wire.h>
 #include <DS1307RTC.h>
 #include <TimeLord.h>
-#include <Time.h>
+#include <TimeLib.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
 
 // DHT11 Temperature and Humidity Sensors
-#define DHTPIN 13         //define as DHTPIN the Pin 10 used to connect the Sensor
-#define DHTTYPE DHT11    //define the sensor used(DHT11)
 #define REDPIN 5
 #define GREENPIN 6
 #define BLUEPIN 3
 
-/* INSTANTIATE DHT OBJECT */
-DHT dht(DHTPIN, DHTTYPE);
+//Dallas Onewire
+#define ONE_WIRE_BUS 10
+// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature sensors(&oneWire);
+// arrays to hold device address
+DeviceAddress insideThermometer;
+
 
 /*DEBUGGING SETTINGS    *******************************************************************/
 #define DEBUG 1  // Set to 1 to enable debug messages through serial port monitor
@@ -43,27 +49,27 @@ float const LATITUDE = 36.14;
 int const TIMEZONE = -4;
 
 void setup() {
-  pinMode(A2, OUTPUT);      //Setting the A2-A4 pins to output
-  digitalWrite(A2, LOW);    //digital mode to power the RTC
-  pinMode(A3, OUTPUT);      //without wires!
-  digitalWrite(A3, HIGH);
-  pinMode(12, OUTPUT);
-  digitalWrite(12, HIGH);
-
-
   /* FIRE UP SERIAL */
+# if DEBUG == 1
   Serial.begin(115200);
   while (!Serial) ; // wait for serial
   delay(200);
+#endif
 
-  /* FIRE UP DHT SENSOR */
-  dht.begin();
+
+  //Dallas Sensor Setup
+  if (!sensors.getAddress(insideThermometer, 0)) Serial.println("Unable to find address for Device 0");
+  // set the resolution to 9 bit (Each Dallas/Maxim device is capable of several different resolutions)
+  sensors.setResolution(insideThermometer, 9);
 
   /* TimeLord Object Initialization */
   tardis.TimeZone(TIMEZONE * 60);
   tardis.Position(LATITUDE, LONGITUDE);
 
-  //RTC Synchronization Setup
+
+
+
+
   setSyncProvider(RTC.get);   // the function to get the time from the RTC
   if (timeStatus() != timeSet) {
     Serial.println("Unable to sync with the RTC");
@@ -72,36 +78,18 @@ void setup() {
     Serial.println("RTC has set the system time");
   }
   blinkWhite();
-
-
 }
 
-void loop() {
-  //Set the system time from the RTC if there is suspicion of drift
-  //Empiric testing indicates that the time library is routinely syncing RTC to SYSTEM
-# if TIMEDRIFT == 1
-  Serial.print("SYS TIME = ");
-  print2digits(hour());
-  Serial.print(':');
-  print2digits(minute());
-  Serial.print(':');
-  print2digits(second());
-  Serial.println();
-# endif
 
+void loop() {
   tmElements_t tm; //Instantiate time object
 
-  /* CHECK TIME AND SENSORS */
-  float h = dht.readHumidity();    // reading Humidity
-  float t = (32 + (9 * (dht.readTemperature())) / 5); // read Temperature as Farenheight
+  // Dallas onewire
+  sensors.requestTemperatures(); // Send the command to get temperatures
+  float tempC = sensors.getTempC(insideThermometer);
+  float t = (DallasTemperature::toFahrenheit(tempC));
 
-  // check if any reads failed and exit early (to try again).
-  if (isnan(h) || isnan(t)) {
-    Serial.println("Failed to read from DHT sensor!");
-    Serial.println("Using Bogus Values");
-    h = 100;
-    t = 100;
-  }
+  /* CHECK TIME */
   if (timeStatus() == timeNeedsSync) {
     Serial.println("Hey, Time is out of Sync");
   };
@@ -160,10 +148,8 @@ void loop() {
     };
     Serial.print("% of daylight left: ");
     Serial.println (pctDayLeft);
-    Serial.print("Temp / Hum: ");    //print current environmental conditions
-    Serial.print(t, 2);    //print the temperature
-    Serial.print(" / ");
-    Serial.println(h, 2);  //print the humidity
+    Serial.print("Temp: ");    //print current environmental conditions
+    Serial.println(t, 2);    //print the temperature
     Serial.println("**************************************");
 #endif
 
@@ -177,9 +163,9 @@ void loop() {
     */
 
     if
-    (((dayMinNow >= (mSunset - 10)) && (dayMinNow <= (mSunset + 90)))
+    (((dayMinNow >= (mSunset)) && (dayMinNow <= (mSunset + 60)))
         ||
-        ((dayMinNow >= (mSunrise)) && (dayMinNow <= (mSunrise + 120)))) {
+        ((dayMinNow >= (mSunrise)) && (dayMinNow <= (mSunrise + 60)))) {
       if (t > 85) {
         analogWrite(REDPIN, 255);
         analogWrite(BLUEPIN, 0);
@@ -216,7 +202,8 @@ void loop() {
       analogWrite(BLUEPIN, 0);
       analogWrite(GREENPIN, 0);
     }
-    delay(60000);
+    //    delay(5 * 60000);
+    delay(1000);
   }
 }
 void print2digits(int number) {
